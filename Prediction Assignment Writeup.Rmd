@@ -1,0 +1,101 @@
+---
+title: "Prediction Assignment Writeup"
+author: "CR"
+date: "8 7 2020"
+output:
+  md_document:
+    variant: markdown_github
+    keep_md: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# librarys
+library(tidyverse)
+library(caret)
+library(mlbench)
+library(doParallel)
+```
+
+## Summary
+
+In this excercise two models are built on fitness measurements. The data is provided by this project [http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har). The best model is used to predict results from a small test dataset.
+
+```{r basics}
+
+
+# load datasets
+training <- read.csv("C:/Users/I0271035/Desktop/coursera/practicalmachinelearning_JohnsHopkins/project/pml-training.csv",na.strings=c("","NA","#DIV/0!"))
+
+testing <- read.csv("C:/Users/I0271035/Desktop/coursera/practicalmachinelearning_JohnsHopkins/project/pml-testing.csv",na.strings=c("","NA", "#DIV/0!"))
+
+summary(training$classe)
+```
+
+## Reducing Predictors
+
+Variables with mainly NA values and timestamp information are removed from the training dataset. Second near zero variance predictors are searched but the reduced dataset does not contain such values (see empty summary).
+
+```{r choose variables, echo=TRUE}
+real.training <- training %>% 
+  select_if(function(x) !any(is.na(x))) %>% 
+  select(-contains("time")) %>% 
+  select(-X, -user_name, -new_window, -num_window)
+
+# test if uninformative predictors in dataset
+t<-nearZeroVar(real.training)
+summary(t)
+```
+
+## Split Dataset
+
+To estimtate the quality of the model an accuracy on test data should be provided. So the dataset is split to train the model on training data and validate it on test data.
+
+```{r split data, echo=TRUE}
+real.parts <- createDataPartition(training$classe, p=.75, list = FALSE)
+
+real.training.part <- real.training[real.parts,]
+real.testing.part <- real.training[-real.parts,]
+dim(real.training.part)
+```
+
+## Build Models
+
+The random forest method and the gradient boosting machine (GBM) method are trained to the data. 
+
+```{r modeling, echo=TRUE}
+# random forest
+cl <- makePSOCKcluster(detectCores() - 1)
+registerDoParallel(cl)
+
+mdl <- train(classe ~., real.training.part, method="rf")
+
+stopCluster(cl)
+
+
+# gbm
+cl <- makePSOCKcluster(detectCores() - 1)
+registerDoParallel(cl)
+
+mdl.gbm <- train(classe ~., real.training.part, method="gbm")
+
+stopCluster(cl)
+
+predict.rf <- predict(mdl, real.testing.part)
+predict.gbm <- predict(mdl.gbm, real.testing.part)
+
+confusionMatrix(predict.rf, real.testing.part$classe)
+confusionMatrix(predict.gbm, real.testing.part$classe)
+
+predict.quiz <- predict(mdl, testing)
+```
+
+As the Accuracy on the test dataset for random forest (`r confusionMatrix(predict.rf, real.testing.part$classe)[3]$overall[1][1]`) is larger than for gbm (`r confusionMatrix(predict.gbm, real.testing.part$classe)[3]$overall[1][1]`), random forest is used to predict on the small test dataset.
+
+```{r quiz, echo=TRUE}
+
+predict.quiz
+
+write.table(as.tibble(predict.quiz)$value, 'predict_quiz.csv', row.names=FALSE, col.names=FALSE, sep=",")
+```
